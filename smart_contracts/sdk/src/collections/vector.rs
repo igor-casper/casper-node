@@ -3,7 +3,6 @@ use crate::{
     host::{self, read_into_vec},
 };
 
-// use casper_macros::casper;
 use crate::{
     prelude::{cmp::Ordering, marker::PhantomData},
     serializers::borsh::{BorshDeserialize, BorshSerialize},
@@ -11,10 +10,12 @@ use crate::{
 use casper_executor_wasm_common::keyspace::Keyspace;
 use const_fnv1a_hash::fnv1a_hash_str_64;
 
+use super::Prefix;
+
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone)]
 #[borsh(crate = "crate::serializers::borsh")]
 pub struct Vector<T> {
-    pub(crate) prefix: String,
+    pub(crate) prefix: Vec<u8>,
     pub(crate) length: u64,
     pub(crate) _marker: PhantomData<T>,
 }
@@ -55,20 +56,31 @@ impl<T> Vector<T>
 where
     T: BorshSerialize + BorshDeserialize,
 {
-    pub fn new<S: Into<String>>(prefix: S) -> Self {
+    pub fn new<S: Prefix>(prefix: S) -> Self {
         Self {
-            prefix: prefix.into(),
+            prefix: prefix.to_bytes(),
             length: 0,
             _marker: PhantomData,
         }
     }
 
     pub fn push(&mut self, value: T) {
-        let mut prefix_bytes = self.prefix.as_bytes().to_owned();
+        let mut prefix_bytes = self.prefix.clone();
         prefix_bytes.extend(&self.length.to_le_bytes());
         let prefix = Keyspace::Context(&prefix_bytes);
         host::casper_write(prefix, &borsh::to_vec(&value).unwrap()).unwrap();
         self.length += 1;
+    }
+
+    pub fn push_nested(
+        &mut self,
+        f: impl FnOnce(Vec<u8>) -> T
+    ) {
+        let mut prefix = self.prefix.clone();
+        prefix.push(b'_');
+        prefix.extend(self.length.to_le_bytes());
+        let collection = f(prefix);
+        self.push(collection);
     }
 
     pub fn contains(&self, value: &T) -> bool
@@ -79,7 +91,7 @@ where
     }
 
     pub fn get(&self, index: u64) -> Option<T> {
-        let mut prefix_bytes = self.prefix.as_bytes().to_owned();
+        let mut prefix_bytes = self.prefix.clone();
         prefix_bytes.extend(&index.to_le_bytes());
         let prefix = Keyspace::Context(&prefix_bytes);
         read_into_vec(prefix).map(|vec| borsh::from_slice(&vec).unwrap())
@@ -197,7 +209,7 @@ where
     }
 
     fn get_prefix_bytes(&self, index: u64) -> Vec<u8> {
-        let mut prefix_bytes = self.prefix.as_bytes().to_owned();
+        let mut prefix_bytes = self.prefix.clone();
         prefix_bytes.extend(&index.to_le_bytes());
         prefix_bytes
     }
@@ -209,8 +221,10 @@ where
     }
 }
 
-#[cfg(all(test, feature = "std"))]
+#[cfg(all(test))]
 pub(crate) mod tests {
+    use sdk_lib_derive::Prefix;
+
     use self::host::native::dispatch;
 
     use super::*;
@@ -291,5 +305,54 @@ pub(crate) mod tests {
             assert_eq!(vec2.get(0), None);
         })
         .unwrap();
+    }
+
+    #[test]
+    fn nest_test_manual() {
+        dispatch(|| {
+            let mut vec = Vector::new("root");
+
+            for i in 0..10 {
+                vec.push_nested(|prefix| {
+                    let mut inner = Vector::new(prefix);
+                    for j in 0..10 {
+                        inner.push(i*j);
+                    }
+                    inner
+                });
+            }
+
+            assert_eq!(vec.get(3).unwrap().get(0).unwrap(), 0);
+            assert_eq!(vec.get(3).unwrap().get(1).unwrap(), 3);
+            assert_eq!(vec.get(3).unwrap().get(7).unwrap(), 21);
+        }).unwrap();
+    }
+
+    #[test]
+    fn nest_test_enum() {
+
+        #[derive(Prefix)]
+        enum Structure {
+            Root,
+            Nested(usize)
+        }
+
+        dispatch(|| {
+            use Structure::*;
+
+            let mut vec = Vector::new(Root);
+
+            for i in 0..10 {
+                let mut inner = Vector::new(Nested(i));
+                for j in 0..10 {
+                    inner.push(i*j);
+                }
+                vec.push(inner);
+            }
+
+            assert_eq!(vec.get(3).unwrap().get(0).unwrap(), 0);
+            assert_eq!(vec.get(3).unwrap().get(1).unwrap(), 3);
+            assert_eq!(vec.get(3).unwrap().get(7).unwrap(), 21);
+        }).unwrap();
     }
 }

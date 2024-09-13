@@ -19,6 +19,7 @@ members = [
     "smart_contracts/sdk",
     "smart_contracts/sdk-codegen",
     "smart_contracts/sdk-sys",
+    "smart_contracts/sdk-lib-derive",
     "smart_contracts/macros",
     "cargo-casper",
 #    "utils/highway-rewards-analysis",

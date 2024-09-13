@@ -2,7 +2,7 @@ use crate::serializers::borsh::{BorshDeserialize, BorshSerialize};
 
 use crate::abi::CasperABI;
 
-use super::Vector;
+use super::{Prefix, Vector};
 
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone)]
 #[borsh(crate = "crate::serializers::borsh")]
@@ -39,7 +39,7 @@ impl<T> SortedVector<T>
 where
     T: BorshSerialize + BorshDeserialize + Ord,
 {
-    pub fn new<S: Into<String>>(prefix: S) -> Self {
+    pub fn new<S: Prefix>(prefix: S) -> Self {
         Self {
             vector: Vector::new(prefix),
         }
@@ -48,6 +48,17 @@ where
     pub fn push(&mut self, value: T) {
         let pos = self.vector.binary_search(&value).unwrap_or_else(|e| e);
         self.vector.insert(pos, value);
+    }
+
+    pub fn next_nested(
+        &mut self,
+        f: impl Fn(Vec<u8>) -> T
+    ) {
+        let mut prefix = self.vector.prefix.clone();
+        prefix.push(b'_');
+        prefix.extend(self.vector.length.to_le_bytes());
+        let collection = f(prefix);
+        self.push(collection);
     }
 
     #[inline]

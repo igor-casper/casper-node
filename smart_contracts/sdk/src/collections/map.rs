@@ -8,10 +8,12 @@ use const_fnv1a_hash::fnv1a_hash_str_64;
 
 use crate::prelude::marker::PhantomData;
 
+use super::Prefix;
+
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone)]
 #[borsh(crate = "crate::serializers::borsh")]
 pub struct Map<K, V> {
-    pub(crate) name: String,
+    pub(crate) name: Vec<u8>,
     pub(crate) _marker: PhantomData<(K, V)>,
 }
 
@@ -27,16 +29,28 @@ where
     K: BorshSerialize,
     V: BorshSerialize + BorshDeserialize,
 {
-    pub fn new<S: Into<String>>(name: S) -> Self {
+    pub fn new<S: Prefix>(name: S) -> Self {
         Self {
-            name: name.into(),
+            name: name.to_bytes(),
             _marker: PhantomData,
         }
     }
 
+    pub fn insert_nested(
+        &mut self,
+        key: &K,
+        f: impl Fn(Vec<u8>) -> V
+    ) {
+        let mut context_key = Vec::new();
+        context_key.extend(&self.name);
+        key.serialize(&mut context_key).unwrap();
+        let collection = f(context_key);
+        self.insert(key, &collection);
+    }
+
     pub fn insert(&mut self, key: &K, value: &V) {
         let mut context_key = Vec::new();
-        context_key.extend(self.name.as_bytes());
+        context_key.extend(&self.name);
         // NOTE: We may want to create new keyspace for a hashed context element to avoid hashing in
         // the wasm.
         key.serialize(&mut context_key).unwrap();
@@ -45,7 +59,7 @@ where
     }
 
     pub fn get(&self, key: &K) -> Option<V> {
-        let mut key_bytes = self.name.as_bytes().to_owned();
+        let mut key_bytes = self.name.to_owned();
         key.serialize(&mut key_bytes).unwrap();
         let prefix = Keyspace::Context(&key_bytes);
         read_into_vec(prefix).map(|vec| borsh::from_slice(&vec).unwrap())
