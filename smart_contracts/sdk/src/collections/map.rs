@@ -36,18 +36,6 @@ where
         }
     }
 
-    pub fn insert_nested(
-        &mut self,
-        key: &K,
-        f: impl Fn(Vec<u8>) -> V
-    ) {
-        let mut context_key = Vec::new();
-        context_key.extend(&self.name);
-        key.serialize(&mut context_key).unwrap();
-        let collection = f(context_key);
-        self.insert(key, &collection);
-    }
-
     pub fn insert(&mut self, key: &K, value: &V) {
         let mut context_key = Vec::new();
         context_key.extend(&self.name);

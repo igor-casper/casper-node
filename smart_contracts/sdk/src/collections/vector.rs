@@ -72,17 +72,6 @@ where
         self.length += 1;
     }
 
-    pub fn push_nested(
-        &mut self,
-        f: impl FnOnce(Vec<u8>) -> T
-    ) {
-        let mut prefix = self.prefix.clone();
-        prefix.push(b'_');
-        prefix.extend(self.length.to_le_bytes());
-        let collection = f(prefix);
-        self.push(collection);
-    }
-
     pub fn contains(&self, value: &T) -> bool
     where
         T: PartialEq,
@@ -305,27 +294,6 @@ pub(crate) mod tests {
             assert_eq!(vec2.get(0), None);
         })
         .unwrap();
-    }
-
-    #[test]
-    fn nest_test_manual() {
-        dispatch(|| {
-            let mut vec = Vector::new("root");
-
-            for i in 0..10 {
-                vec.push_nested(|prefix| {
-                    let mut inner = Vector::new(prefix);
-                    for j in 0..10 {
-                        inner.push(i*j);
-                    }
-                    inner
-                });
-            }
-
-            assert_eq!(vec.get(3).unwrap().get(0).unwrap(), 0);
-            assert_eq!(vec.get(3).unwrap().get(1).unwrap(), 3);
-            assert_eq!(vec.get(3).unwrap().get(7).unwrap(), 21);
-        }).unwrap();
     }
 
     #[test]
