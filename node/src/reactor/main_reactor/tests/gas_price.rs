@@ -79,7 +79,8 @@ async fn run_gas_price_scenario(gas_price_scenario: GasPriceScenario) {
 
     // Run the network at load for at least 5 eras.
     for _ in 0..5 {
-        let target_public_key = PublicKey::random(&mut fixture.rng);
+        let rng = fixture.rng_mut();
+        let target_public_key = PublicKey::random(rng);
         let fixed_native_mint_transaction =
             TransactionV1Builder::new_transfer(10_000_000_000u64, None, target_public_key, None)
                 .expect("must get builder")
@@ -108,8 +109,8 @@ async fn run_gas_price_scenario(gas_price_scenario: GasPriceScenario) {
     let gas_price_for_non_validating_node =
         fixture.get_block_gas_price_by_public_key(Some(&non_validating_public_key));
     assert_eq!(actual_gas_price, gas_price_for_non_validating_node);
-
-    let target_public_key = PublicKey::random(&mut fixture.rng);
+    let rng = fixture.rng_mut();
+    let target_public_key = PublicKey::random(rng);
 
     let holds_before = fixture.check_account_balance_hold_at_tip(alice_public_key.clone());
     let amount = 10_000_000_000u64;

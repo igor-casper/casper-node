@@ -8,6 +8,7 @@ mod initial_stakes;
 mod network_general;
 mod rewards;
 mod switch_blocks;
+mod transaction_scenario;
 mod transactions;
 
 use std::{collections::BTreeSet, sync::Arc, time::Duration};

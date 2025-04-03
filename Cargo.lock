@@ -457,9 +457,15 @@ dependencies = [
 
 [[package]]
 name = "blake3"
+<<<<<<< HEAD
 version = "1.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "34a796731680be7931955498a16a10b2270c7762963d5d570fdbfe02dcbf314f"
+=======
+version = "1.8.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "389a099b34312839e16420d499a9cad9650541715937ffbdd40d36f49e77eeb3"
+>>>>>>> 117ef8375 (WIP)
 dependencies = [
  "arrayref",
  "arrayvec 0.7.6",
@@ -881,7 +887,11 @@ dependencies = [
 [[package]]
 name = "casper-executor-wasm-common"
 version = "0.1.0"
+<<<<<<< HEAD
 source = "git+https://github.com/casper-network/casper-node.git?branch=dev#5ecb8a33a47e8c156ade3328e4dbb03f9d8c2e7f"
+=======
+source = "git+https://github.com/casper-network/casper-node.git?branch=dev#3fef4e0d1564addfe62b4c60b2fb212f9f920a69"
+>>>>>>> 117ef8375 (WIP)
 dependencies = [
  "bitflags 2.9.0",
  "blake2 0.10.6",
@@ -890,6 +900,7 @@ dependencies = [
  "num-derive",
  "num-traits",
  "serde",
+ "thiserror 2.0.12",
 ]
 
 [[package]]
@@ -962,7 +973,11 @@ dependencies = [
 [[package]]
 name = "casper-macros"
 version = "0.1.0"
+<<<<<<< HEAD
 source = "git+https://github.com/casper-network/casper-node.git?branch=dev#5ecb8a33a47e8c156ade3328e4dbb03f9d8c2e7f"
+=======
+source = "git+https://github.com/casper-network/casper-node.git?branch=dev#3fef4e0d1564addfe62b4c60b2fb212f9f920a69"
+>>>>>>> 117ef8375 (WIP)
 dependencies = [
  "blake2-rfc",
  "casper-executor-wasm-common 0.1.0 (git+https://github.com/casper-network/casper-node.git?branch=dev)",
@@ -1096,7 +1111,11 @@ dependencies = [
 [[package]]
 name = "casper-sdk"
 version = "0.1.0"
+<<<<<<< HEAD
 source = "git+https://github.com/casper-network/casper-node.git?branch=dev#5ecb8a33a47e8c156ade3328e4dbb03f9d8c2e7f"
+=======
+source = "git+https://github.com/casper-network/casper-node.git?branch=dev#3fef4e0d1564addfe62b4c60b2fb212f9f920a69"
+>>>>>>> 117ef8375 (WIP)
 dependencies = [
  "bitflags 2.9.0",
  "borsh",
@@ -1136,7 +1155,11 @@ version = "0.1.0"
 [[package]]
 name = "casper-sdk-sys"
 version = "0.1.0"
+<<<<<<< HEAD
 source = "git+https://github.com/casper-network/casper-node.git?branch=dev#5ecb8a33a47e8c156ade3328e4dbb03f9d8c2e7f"
+=======
+source = "git+https://github.com/casper-network/casper-node.git?branch=dev#3fef4e0d1564addfe62b4c60b2fb212f9f920a69"
+>>>>>>> 117ef8375 (WIP)
 
 [[package]]
 name = "casper-storage"
@@ -1304,9 +1327,9 @@ checksum = "37b2a672a2cb129a2e41c10b1224bb368f9f37a2b16b612598138befd7b37eb5"
 
 [[package]]
 name = "cc"
-version = "1.2.17"
+version = "1.2.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1fcb57c740ae1daf453ae85f16e37396f672b039e00d9d866e07ddb24e328e3a"
+checksum = "525046617d8376e3db1deffb079e91cef90a89fc3ca5c185bbf8c9ecdd15cd5c"
 dependencies = [
  "jobserver",
  "libc",
@@ -2613,9 +2636,9 @@ dependencies = [
 
 [[package]]
 name = "errno"
-version = "0.3.10"
+version = "0.3.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "33d852cb9b869c2a9b3df2f71a3074817f01e1844f839a144f5fcef059a4eb5d"
+checksum = "976dd42dc7e85965fe702eb8164f21f450704bdde31faefd6471dba214cb594e"
 dependencies = [
  "libc",
  "windows-sys 0.59.0",
@@ -4110,9 +4133,9 @@ checksum = "68354c5c6bd36d73ff3feceb05efa59b6acb7626617f4962be322a825e61f79a"
 
 [[package]]
 name = "miniz_oxide"
-version = "0.8.5"
+version = "0.8.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8e3e04debbb59698c15bacbb6d93584a8c0ca9cc3213cb423d31f760d8843ce5"
+checksum = "ff70ce3e48ae43fa075863cef62e8b43b71a4f2382229920e0df362592919430"
 dependencies = [
  "adler2",
 ]
@@ -8203,9 +8226,9 @@ dependencies = [
 
 [[package]]
 name = "zip"
-version = "2.5.0"
+version = "2.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "27c03817464f64e23f6f37574b4fdc8cf65925b5bfd2b0f2aedf959791941f88"
+checksum = "febbe83a485467affa75a75d28dc7494acd2f819e549536c47d46b3089b56164"
 dependencies = [
  "aes",
  "arbitrary",

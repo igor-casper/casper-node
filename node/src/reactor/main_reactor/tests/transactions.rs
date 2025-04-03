@@ -46,7 +46,7 @@ static CHARLIE_PUBLIC_KEY: Lazy<PublicKey> =
 // Passing this around as a constant is brittle and should be replaced
 // with a more sustainable solution in the future.
 const DO_NOTHING_WASM_EXECUTION_GAS: u64 = 116955_u64;
-const MIN_GAS_PRICE: u8 = 1;
+pub(crate) const MIN_GAS_PRICE: u8 = 1;
 const CHAIN_NAME: &str = "single-transaction-test-net";
 
 struct SingleTransactionTestCase {
@@ -57,9 +57,9 @@ struct SingleTransactionTestCase {
 }
 
 #[derive(Debug, PartialEq)]
-struct BalanceAmount {
-    available: U512,
-    total: U512,
+pub(crate) struct BalanceAmount {
+    pub(crate) available: U512,
+    pub(crate) total: U512,
 }
 
 impl SingleTransactionTestCase {
@@ -114,49 +114,33 @@ impl SingleTransactionTestCase {
         &mut self,
         block_height: Option<u64>,
     ) -> (BalanceAmount, BalanceAmount, Option<BalanceAmount>) {
-        let alice_total_balance = *get_balance(
-            &mut self.fixture,
-            &self.alice_public_key,
-            block_height,
-            true,
-        )
-        .total_balance()
-        .expect("Expected Alice to have a balance.");
+        let alice_total_balance =
+            *get_balance(&self.fixture, &self.alice_public_key, block_height, true)
+                .total_balance()
+                .expect("Expected Alice to have a balance.");
         let bob_total_balance =
-            *get_balance(&mut self.fixture, &self.bob_public_key, block_height, true)
+            *get_balance(&self.fixture, &self.bob_public_key, block_height, true)
                 .total_balance()
                 .expect("Expected Bob to have a balance.");
 
-        let alice_available_balance = *get_balance(
-            &mut self.fixture,
-            &self.alice_public_key,
-            block_height,
-            false,
-        )
-        .available_balance()
-        .expect("Expected Alice to have a balance.");
+        let alice_available_balance =
+            *get_balance(&self.fixture, &self.alice_public_key, block_height, false)
+                .available_balance()
+                .expect("Expected Alice to have a balance.");
         let bob_available_balance =
-            *get_balance(&mut self.fixture, &self.bob_public_key, block_height, false)
+            *get_balance(&self.fixture, &self.bob_public_key, block_height, false)
                 .available_balance()
                 .expect("Expected Bob to have a balance.");
 
-        let charlie_available_balance = get_balance(
-            &mut self.fixture,
-            &self.charlie_public_key,
-            block_height,
-            false,
-        )
-        .available_balance()
-        .copied();
+        let charlie_available_balance =
+            get_balance(&self.fixture, &self.charlie_public_key, block_height, false)
+                .available_balance()
+                .copied();
 
-        let charlie_total_balance = get_balance(
-            &mut self.fixture,
-            &self.charlie_public_key,
-            block_height,
-            true,
-        )
-        .available_balance()
-        .copied();
+        let charlie_total_balance =
+            get_balance(&self.fixture, &self.charlie_public_key, block_height, true)
+                .available_balance()
+                .copied();
 
         let charlie_amount = charlie_available_balance.map(|avail_balance| BalanceAmount {
             available: avail_balance,
@@ -447,8 +431,8 @@ fn get_main_purse(fixture: &mut TestFixture, account_key: &PublicKey) -> Result<
     }
 }
 
-fn get_balance(
-    fixture: &mut TestFixture,
+pub(crate) fn get_balance(
+    fixture: &TestFixture,
     account_key: &PublicKey,
     block_height: Option<u64>,
     get_total: bool,
@@ -714,7 +698,7 @@ fn get_entity_by_account_hash(
         })
 }
 
-fn assert_exec_result_cost(
+pub(crate) fn assert_exec_result_cost(
     exec_result: ExecutionResult,
     expected_cost: U512,
     expected_consumed_gas: Gas,
@@ -798,7 +782,7 @@ async fn should_native_transfer_nofee_norefund_fixed() {
 
     fixture.run_until_consensus_in_era(ERA_ONE, ONE_MIN).await;
 
-    let alice_initial_balance = *get_balance(&mut fixture, &alice_public_key, None, true)
+    let alice_initial_balance = *get_balance(&fixture, &alice_public_key, None, true)
         .available_balance()
         .expect("Expected Alice to have a balance.");
 
@@ -831,9 +815,8 @@ async fn should_native_transfer_nofee_norefund_fixed() {
     );
 
     let alice_available_balance =
-        get_balance(&mut fixture, &alice_public_key, Some(block_height), false);
-    let alice_total_balance =
-        get_balance(&mut fixture, &alice_public_key, Some(block_height), true);
+        get_balance(&fixture, &alice_public_key, Some(block_height), false);
+    let alice_total_balance = get_balance(&fixture, &alice_public_key, Some(block_height), true);
 
     // since FeeHandling is set to NoFee, we expect that there's a hold on Alice's balance for the
     // cost of the transfer. The total balance of Alice now should be the initial balance - the
@@ -858,7 +841,7 @@ async fn should_native_transfer_nofee_norefund_fixed() {
         alice_expected_available_balance
     );
 
-    let charlie_balance = get_balance(&mut fixture, &charlie_public_key, Some(block_height), false);
+    let charlie_balance = get_balance(&fixture, &charlie_public_key, Some(block_height), false);
     assert_eq!(
         charlie_balance
             .available_balance()
@@ -874,13 +857,13 @@ async fn should_native_transfer_nofee_norefund_fixed() {
         .await;
 
     let alice_available_balance = get_balance(
-        &mut fixture,
+        &fixture,
         &alice_public_key,
         Some(hold_release_block_height),
         false,
     );
     let alice_total_balance = get_balance(
-        &mut fixture,
+        &fixture,
         &alice_public_key,
         Some(hold_release_block_height),
         true,
@@ -964,7 +947,7 @@ async fn erroneous_native_transfer_nofee_norefund_fixed() {
 
     // Even though the transaction failed, a hold must still be in place for the transfer cost.
     let charlie_available_balance =
-        get_balance(&mut fixture, &charlie_public_key, Some(block_height), false);
+        get_balance(&fixture, &charlie_public_key, Some(block_height), false);
     assert_eq!(
         charlie_available_balance
             .available_balance()
@@ -994,7 +977,7 @@ async fn should_native_transfer_nofee_norefund_payment_limited() {
 
     fixture.run_until_consensus_in_era(ERA_ONE, ONE_MIN).await;
 
-    let alice_initial_balance = *get_balance(&mut fixture, &alice_public_key, None, true)
+    let alice_initial_balance = *get_balance(&fixture, &alice_public_key, None, true)
         .available_balance()
         .expect("Expected Alice to have a balance.");
 
@@ -1026,9 +1009,8 @@ async fn should_native_transfer_nofee_norefund_payment_limited() {
     );
 
     let alice_available_balance =
-        get_balance(&mut fixture, &alice_public_key, Some(block_height), false);
-    let alice_total_balance =
-        get_balance(&mut fixture, &alice_public_key, Some(block_height), true);
+        get_balance(&fixture, &alice_public_key, Some(block_height), false);
+    let alice_total_balance = get_balance(&fixture, &alice_public_key, Some(block_height), true);
 
     // since FeeHandling is set to NoFee, we expect that there's a hold on Alice's balance for the
     // cost of the transfer. The total balance of Alice now should be the initial balance - the
@@ -1053,7 +1035,7 @@ async fn should_native_transfer_nofee_norefund_payment_limited() {
         alice_expected_available_balance
     );
 
-    let charlie_balance = get_balance(&mut fixture, &charlie_public_key, Some(block_height), false);
+    let charlie_balance = get_balance(&fixture, &charlie_public_key, Some(block_height), false);
     assert_eq!(
         charlie_balance
             .available_balance()
@@ -1069,13 +1051,13 @@ async fn should_native_transfer_nofee_norefund_payment_limited() {
         .await;
 
     let alice_available_balance = get_balance(
-        &mut fixture,
+        &fixture,
         &alice_public_key,
         Some(hold_release_block_height),
         false,
     );
     let alice_total_balance = get_balance(
-        &mut fixture,
+        &fixture,
         &alice_public_key,
         Some(hold_release_block_height),
         true,
@@ -1103,7 +1085,7 @@ async fn should_native_auction_with_nofee_norefund_payment_limited() {
 
     fixture.run_until_consensus_in_era(ERA_ONE, ONE_MIN).await;
 
-    let alice_initial_balance = *get_balance(&mut fixture, &alice_public_key, None, true)
+    let alice_initial_balance = *get_balance(&fixture, &alice_public_key, None, true)
         .available_balance()
         .expect("Expected Alice to have a balance.");
 
@@ -1151,9 +1133,8 @@ async fn should_native_auction_with_nofee_norefund_payment_limited() {
     );
 
     let alice_available_balance =
-        get_balance(&mut fixture, &alice_public_key, Some(block_height), false);
-    let alice_total_balance =
-        get_balance(&mut fixture, &alice_public_key, Some(block_height), true);
+        get_balance(&fixture, &alice_public_key, Some(block_height), false);
+    let alice_total_balance = get_balance(&fixture, &alice_public_key, Some(block_height), true);
 
     // since FeeHandling is set to NoFee, we expect that there's a hold on Alice's balance for the
     // cost of the transfer. The total balance of Alice now should be the initial balance - the
@@ -1236,10 +1217,10 @@ async fn should_not_overcharge_native_operations_fixed() {
 
     fixture.run_until_consensus_in_era(ERA_ONE, ONE_MIN).await;
 
-    let bob_initial_balance = *get_balance(&mut fixture, &bob_public_key, None, true)
+    let bob_initial_balance = *get_balance(&fixture, &bob_public_key, None, true)
         .total_balance()
         .expect("Expected Bob to have a balance.");
-    let alice_initial_balance = *get_balance(&mut fixture, &alice_public_key, None, true)
+    let alice_initial_balance = *get_balance(&fixture, &alice_public_key, None, true)
         .total_balance()
         .expect("Expected Alice to have a balance.");
 
@@ -1278,22 +1259,20 @@ async fn should_not_overcharge_native_operations_fixed() {
         "cost should equal consumed",
     );
 
-    let bob_available_balance =
-        *get_balance(&mut fixture, &bob_public_key, Some(block_height), false)
-            .available_balance()
-            .expect("Expected Bob to have a balance");
-    let bob_total_balance = *get_balance(&mut fixture, &bob_public_key, Some(block_height), true)
+    let bob_available_balance = *get_balance(&fixture, &bob_public_key, Some(block_height), false)
+        .available_balance()
+        .expect("Expected Bob to have a balance");
+    let bob_total_balance = *get_balance(&fixture, &bob_public_key, Some(block_height), true)
         .total_balance()
         .expect("Expected Bob to have a balance");
 
     let alice_available_balance =
-        *get_balance(&mut fixture, &alice_public_key, Some(block_height), false)
+        *get_balance(&fixture, &alice_public_key, Some(block_height), false)
             .available_balance()
             .expect("Expected Alice to have a balance");
-    let alice_total_balance =
-        *get_balance(&mut fixture, &alice_public_key, Some(block_height), true)
-            .total_balance()
-            .expect("Expected Alice to have a balance");
+    let alice_total_balance = *get_balance(&fixture, &alice_public_key, Some(block_height), true)
+        .total_balance()
+        .expect("Expected Alice to have a balance");
 
     // Bob shouldn't get a refund since there is no refund for native transfers.
     let bob_expected_total_balance = bob_initial_balance - transfer_amount - expected_transfer_cost;
@@ -1303,10 +1282,9 @@ async fn should_not_overcharge_native_operations_fixed() {
     let alice_expected_total_balance = alice_initial_balance + expected_transfer_cost;
     let alice_expected_available_balance = alice_expected_total_balance;
 
-    let charlie_balance =
-        *get_balance(&mut fixture, &charlie_public_key, Some(block_height), false)
-            .available_balance()
-            .expect("Expected Charlie to have a balance");
+    let charlie_balance = *get_balance(&fixture, &charlie_public_key, Some(block_height), false)
+        .available_balance()
+        .expect("Expected Charlie to have a balance");
     assert_eq!(charlie_balance.clone(), transfer_amount.into());
 
     assert_eq!(
@@ -1346,10 +1324,10 @@ async fn should_cancel_refund_for_erroneous_wasm() {
 
     fixture.run_until_consensus_in_era(ERA_ONE, ONE_MIN).await;
 
-    let bob_initial_balance = *get_balance(&mut fixture, &bob_public_key, None, true)
+    let bob_initial_balance = *get_balance(&fixture, &bob_public_key, None, true)
         .total_balance()
         .expect("Expected Bob to have a balance.");
-    let alice_initial_balance = *get_balance(&mut fixture, &alice_public_key, None, true)
+    let alice_initial_balance = *get_balance(&fixture, &alice_public_key, None, true)
         .total_balance()
         .expect("Expected Alice to have a balance.");
 
@@ -1376,22 +1354,20 @@ async fn should_cancel_refund_for_erroneous_wasm() {
         "wasm_transaction_fees_are_refunded",
     );
 
-    let bob_available_balance =
-        *get_balance(&mut fixture, &bob_public_key, Some(block_height), false)
-            .available_balance()
-            .expect("Expected Bob to have a balance");
-    let bob_total_balance = *get_balance(&mut fixture, &bob_public_key, Some(block_height), true)
+    let bob_available_balance = *get_balance(&fixture, &bob_public_key, Some(block_height), false)
+        .available_balance()
+        .expect("Expected Bob to have a balance");
+    let bob_total_balance = *get_balance(&fixture, &bob_public_key, Some(block_height), true)
         .total_balance()
         .expect("Expected Bob to have a balance");
 
     let alice_available_balance =
-        *get_balance(&mut fixture, &alice_public_key, Some(block_height), false)
+        *get_balance(&fixture, &alice_public_key, Some(block_height), false)
             .available_balance()
             .expect("Expected Alice to have a balance");
-    let alice_total_balance =
-        *get_balance(&mut fixture, &alice_public_key, Some(block_height), true)
-            .total_balance()
-            .expect("Expected Alice to have a balance");
+    let alice_total_balance = *get_balance(&fixture, &alice_public_key, Some(block_height), true)
+        .total_balance()
+        .expect("Expected Alice to have a balance");
 
     // Bob gets no refund because the wasm errored
     let bob_expected_total_balance = bob_initial_balance - expected_transaction_cost;
@@ -1552,6 +1528,10 @@ async fn should_not_refund_erroneous_wasm_burn(txn_pricing_mode: PricingMode) {
 
     // Bobs transaction was invalid. He should get NO refund.
     // Since there is no refund - there will also be nothing burned.
+    let a = test.get_total_supply(Some(block_height));
+    let b = initial_total_supply;
+    println!("Initial {:?}", b);
+    println!("current {:?}, height {}", a, block_height);
     assert_eq!(
         test.get_total_supply(Some(block_height)),
         initial_total_supply
@@ -3005,7 +2985,10 @@ fn transfer_txn<A: Into<U512>>(
     txn
 }
 
-fn invalid_wasm_txn(initiator: Arc<SecretKey>, pricing_mode: PricingMode) -> Transaction {
+pub(crate) fn invalid_wasm_txn(
+    initiator: Arc<SecretKey>,
+    pricing_mode: PricingMode,
+) -> Transaction {
     //These bytes are intentionally so large - this way they fall into "WASM_LARGE" category in the
     // local chainspec Alternatively we could change the chainspec to have a different limits
     // for the wasm categories, but that would require aligning all tests that use local
@@ -4591,7 +4574,7 @@ async fn gas_holds_accumulate_for_multiple_transactions_in_the_same_block() {
         txn_3_block_height,
     );
     let alice_total_holds: U512 = get_balance(
-        &mut test.fixture,
+        &test.fixture,
         &ALICE_PUBLIC_KEY,
         Some(max_block_height),
         false,
@@ -4612,7 +4595,7 @@ async fn gas_holds_accumulate_for_multiple_transactions_in_the_same_block() {
     test.fixture
         .run_until_block_height(max_block_height + 5, ONE_MIN)
         .await;
-    let alice_total_holds: U512 = get_balance(&mut test.fixture, &ALICE_PUBLIC_KEY, None, false)
+    let alice_total_holds: U512 = get_balance(&test.fixture, &ALICE_PUBLIC_KEY, None, false)
         .proofs_result()
         .expect("Expected Alice to proof results.")
         .balance_holds()
@@ -4692,7 +4675,7 @@ async fn gh_5058_regression_custom_payment_with_deploy_variant_works() {
         ))
     };
 
-    let acct = get_balance(&mut test.fixture, &ALICE_PUBLIC_KEY, None, true);
+    let acct = get_balance(&test.fixture, &ALICE_PUBLIC_KEY, None, true);
     assert!(acct.total_balance().cloned().unwrap() >= payment_amount);
 
     let (_txn_hash, _block_height, exec_result) = test.send_transaction(txn).await;
@@ -4767,7 +4750,7 @@ async fn should_penalize_failed_custom_payment() {
         ))
     };
 
-    let acct = get_balance(&mut test.fixture, &ALICE_PUBLIC_KEY, None, true);
+    let acct = get_balance(&test.fixture, &ALICE_PUBLIC_KEY, None, true);
     assert!(acct.total_balance().cloned().unwrap() >= payment_amount);
 
     let (_txn_hash, _block_height, exec_result) = test.send_transaction(txn).await;
@@ -4938,7 +4921,7 @@ async fn should_allow_custom_payment() {
         ))
     };
 
-    let acct = get_balance(&mut test.fixture, &ALICE_PUBLIC_KEY, None, true);
+    let acct = get_balance(&test.fixture, &ALICE_PUBLIC_KEY, None, true);
     assert!(acct.total_balance().cloned().unwrap() >= payment_amount);
 
     let (_txn_hash, _block_height, exec_result) = test.send_transaction(txn).await;

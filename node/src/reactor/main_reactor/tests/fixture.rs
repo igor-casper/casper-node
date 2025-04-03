@@ -69,7 +69,15 @@ impl TestFixture {
         initial_stakes: InitialStakes,
         spec_override: Option<ConfigsOverride>,
     ) -> Self {
-        let mut rng = TestRng::new();
+        let rng = TestRng::new();
+        Self::new_with_rng(initial_stakes, spec_override, rng).await
+    }
+
+    pub(crate) async fn new_with_rng(
+        initial_stakes: InitialStakes,
+        spec_override: Option<ConfigsOverride>,
+        mut rng: TestRng,
+    ) -> Self {
         let stake_values = match initial_stakes {
             InitialStakes::FromVec(stakes) => {
                 stakes.into_iter().map(|stake| stake.into()).collect()
@@ -523,6 +531,23 @@ impl TestFixture {
     ///
     /// Panics if the condition isn't met in time.
     pub(crate) async fn run_until_consensus_in_era(&mut self, era_id: EraId, within: Duration) {
+        self.try_until_consensus_in_era(era_id, within)
+            .await
+            .unwrap_or_else(|_| {
+                panic!(
+                    "should reach {} within {} seconds",
+                    era_id,
+                    within.as_secs_f64(),
+                )
+            })
+    }
+
+    /// Runs the network until all nodes' consensus components reach the given era.
+    pub(crate) async fn try_until_consensus_in_era(
+        &mut self,
+        era_id: EraId,
+        within: Duration,
+    ) -> Result<(), Elapsed> {
         self.try_run_until(
             move |nodes: &Nodes| {
                 nodes
@@ -532,13 +557,6 @@ impl TestFixture {
             within,
         )
         .await
-        .unwrap_or_else(|_| {
-            panic!(
-                "should reach {} within {} seconds",
-                era_id,
-                within.as_secs_f64(),
-            )
-        })
     }
 
     /// Runs the network until all nodes' storage components have stored the switch block header for
@@ -550,6 +568,24 @@ impl TestFixture {
         era_id: EraId,
         within: Duration,
     ) {
+        self.try_until_stored_switch_block_header(era_id, within)
+            .await
+            .unwrap_or_else(|_| {
+                panic!(
+                    "should have stored switch block header for {} within {} seconds",
+                    era_id,
+                    within.as_secs_f64(),
+                )
+            })
+    }
+
+    /// Runs the network until all nodes' storage components have stored the switch block header for
+    /// the given era.
+    pub(crate) async fn try_until_stored_switch_block_header(
+        &mut self,
+        era_id: EraId,
+        within: Duration,
+    ) -> Result<(), Elapsed> {
         self.try_run_until(
             move |nodes: &Nodes| {
                 nodes.values().all(|runner| {
@@ -570,13 +606,6 @@ impl TestFixture {
             within,
         )
         .await
-        .unwrap_or_else(|_| {
-            panic!(
-                "should have stored switch block header for {} within {} seconds",
-                era_id,
-                within.as_secs_f64(),
-            )
-        })
     }
 
     /// Runs the network until all nodes have executed the given transaction and stored the
