@@ -169,6 +169,110 @@ async fn setup() -> (
     )
 }
 
+async fn setup2() -> (
+    Framed<TcpStream, BinaryMessageCodec>,
+    (
+        TestFixture,
+        TestData,
+    ),
+) {
+    let mut fixture = TestFixture::new(
+        InitialStakes::AllEqual {
+            count: 4,
+            stake: 100,
+        },
+        None,
+    )
+    .await;
+    let chainspec_raw_bytes = ChainspecRawBytes::clone(&fixture.chainspec_raw_bytes);
+    let mut rng = fixture.rng_mut().create_child();
+    let net = fixture.network_mut();
+    net.settle_on(
+        &mut rng,
+        |nodes| network_produced_blocks(nodes, GUARANTEED_BLOCK_HEIGHT),
+        Duration::from_secs(59),
+    )
+    .await;
+    let (_, first_node) = net
+        .nodes()
+        .iter()
+        .next()
+        .expect("should have at least one node");
+    let secret_signing_key = first_node
+        .main_reactor()
+        .validator_matrix
+        .secret_signing_key()
+        .clone();
+    let highest_block = net
+        .nodes()
+        .iter()
+        .find_map(|(_, runner)| {
+            runner
+                .reactor()
+                .inner()
+                .inner()
+                .storage()
+                .read_highest_block()
+        })
+        .expect("should have highest block");
+    let era_end = first_node
+        .main_reactor()
+        .storage()
+        .get_switch_block_by_era_id(&ERA_ONE)
+        .expect("should not fail retrieving switch block")
+        .expect("should have switch block")
+        .clone_era_end()
+        .expect("should have era end");
+    let Rewards::V2(rewards) = era_end.rewards() else {
+        panic!("should have rewards V2");
+    };
+
+    let effects = test_effects(&mut rng);
+
+    let state_root_hash = first_node
+        .main_reactor()
+        .contract_runtime()
+        .data_access_layer()
+        .commit_effects(*highest_block.state_root_hash(), effects.effects.clone())
+        .expect("should commit effects");
+
+    // Get the binary port address.
+    let binary_port_addr = first_node
+        .main_reactor()
+        .binary_port
+        .bind_address()
+        .expect("should be bound");
+
+    let protocol_version = first_node.main_reactor().chainspec.protocol_version();
+
+    // Set-up client.
+    let address = format!("localhost:{}", binary_port_addr.port());
+    let stream = TcpStream::connect(address.clone())
+        .await
+        .expect("should create stream");
+
+    (
+        Framed::new(stream, BinaryMessageCodec::new(MESSAGE_SIZE)),
+        (
+            fixture,
+            TestData {
+                rng,
+                protocol_version,
+                chainspec_raw_bytes,
+                highest_block,
+                secret_signing_key,
+                state_root_hash,
+                effects,
+                era_one_validator: rewards
+                    .last_key_value()
+                    .expect("should have at least one reward")
+                    .0
+                    .clone(),
+            },
+        ),
+    )
+}
+
 fn test_effects(rng: &mut TestRng) -> TestEffects {
     // we set up some basic data for global state tests, including an account and a dictionary
     let pre_migration_account_hash = AccountHash::new(rng.gen());
@@ -1392,7 +1496,7 @@ async fn binary_port_vm_query() {
     let (
         mut client,
         (
-            finish_cranking,
+            mut fixture,
             TestData {
                 mut rng,
                 protocol_version,
@@ -1404,7 +1508,7 @@ async fn binary_port_vm_query() {
                 era_one_validator,
             },
         ),
-    ) = setup().await;
+    ) = setup2().await;
 
     // Install a VM2 flipper contract
     let sender_pk = PublicKey::from(secret_signing_key.as_ref());
@@ -1449,6 +1553,8 @@ async fn binary_port_vm_query() {
     );
     transaction.sign(&secret_signing_key);
 
+    let txn_hash = transaction.hash();
+
     let put_txn_request_id = 0;
 
     let put_txn_request = Command::TryAcceptTransaction {
@@ -1468,6 +1574,8 @@ async fn binary_port_vm_query() {
         .await
         .expect("should send message");
 
+    fixture.run_until_executed_transaction(&txn_hash, Duration::from_secs(30)).await;
+
     let response = timeout(Duration::from_secs(10), client.next())
         .await
         .expect("should complete without timeout")
@@ -1476,10 +1584,6 @@ async fn binary_port_vm_query() {
     let (binary_response_and_request, _): (BinaryResponseAndRequest, _) =
         FromBytes::from_bytes(response.payload()).expect("should deserialize response");
     assert!(binary_response_and_request.is_success());
-
-    // Wait for the transaction to be included in a block and executed
-    // The network is running in the background, so we wait for a reasonable amount of time
-    tokio::time::sleep(Duration::from_secs(2)).await;
     
     // Read the contract value (0) using a vm query
     let vm_query_request_id = 1;
@@ -1527,8 +1631,4 @@ async fn binary_port_vm_query() {
     let bytes = binary_response_and_request.response().payload();
     println!("RETURNED BYTES: {bytes:?}");
     assert!(binary_response_and_request.is_success());
-
-    let (_net, _rng) = timeout(Duration::from_secs(10), finish_cranking)
-        .await
-        .unwrap_or_else(|_| panic!("should finish cranking without timeout"));
 }

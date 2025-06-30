@@ -19,7 +19,7 @@ use casper_storage::{
     global_state::state::{StateProvider, StateReader},
 };
 use casper_types::{
-    execution::{ExecutionResult, TransformV2},
+    execution::{ExecutionResult, ExecutorQueryRequest, TransformV2},
     system::auction::{DelegationRate, DelegatorKind},
     testing::TestRng,
     AccountConfig, AccountsConfig, ActivationPoint, AddressableEntityHash, Block, BlockBody,

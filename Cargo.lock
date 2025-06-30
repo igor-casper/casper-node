@@ -988,6 +988,7 @@ dependencies = [
  "base16",
  "base64 0.13.1",
  "bincode",
+ "borsh",
  "bytes",
  "casper-binary-port",
  "casper-execution-engine",

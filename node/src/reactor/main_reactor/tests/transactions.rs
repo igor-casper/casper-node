@@ -1,19 +1,15 @@
 use super::{fixture::TestFixture, *};
 use crate::{
-    testing::LARGE_WASM_LANE_ID,
-    types::{transaction::calculate_transaction_lane_for_transaction, MetaTransaction},
+    effect::{EffectExt, Multiple}, testing::LARGE_WASM_LANE_ID, types::{transaction::calculate_transaction_lane_for_transaction, MetaTransaction}
 };
+use casper_binary_port::{Command, CommandHeader, CommandTag};
+use casper_executor_wasm_common::chain_utils;
 use casper_storage::data_access_layer::{
     AddressableEntityRequest, BalanceIdentifier, BalanceIdentifierPurseRequest,
     BalanceIdentifierPurseResult, ProofHandling, QueryRequest, QueryResult,
 };
 use casper_types::{
-    account::AccountHash,
-    addressable_entity::NamedKeyAddr,
-    runtime_args,
-    system::mint::{ARG_AMOUNT, ARG_TARGET},
-    AccessRights, AddressableEntity, Digest, EntityAddr, ExecutableDeployItem, ExecutionInfo,
-    TransactionRuntimeParams, URef, URefAddr,
+    account::AccountHash, addressable_entity::NamedKeyAddr, execution::ExecutorQueryRequest, runtime_args, system::mint::{ARG_AMOUNT, ARG_TARGET}, AccessRights, AddressableEntity, BlockHash, Digest, EntityAddr, ExecutableDeployItem, ExecutionInfo, TransactionArgs, TransactionRuntimeParams, URef, URefAddr
 };
 use once_cell::sync::Lazy;
 
@@ -5444,4 +5440,105 @@ async fn should_assign_deploy_to_largest_lane_by_payment_amount_only_in_payment_
     fixture
         .assert_execution_in_lane(&largest_txn_hash, largest_lane_id, TEN_SECS)
         .await;
+}
+
+#[tokio::test]
+async fn vm_query() {
+    let refund_ratio = Ratio::new(1, 2);
+    let config = SingleTransactionTestCase::default_test_config()
+        .with_pricing_handling(PricingHandling::PaymentLimited)
+        .with_refund_handling(RefundHandling::Refund { refund_ratio })
+        .with_fee_handling(FeeHandling::Burn);
+
+    let mut test = SingleTransactionTestCase::new(
+        ALICE_SECRET_KEY.clone(),
+        BOB_SECRET_KEY.clone(),
+        CHARLIE_SECRET_KEY.clone(),
+        Some(config),
+    )
+    .await;
+
+    // Install a VM2 flipper contract
+    let contract_file = RESOURCES_PATH
+        .join("..")
+        .join("target")
+        .join("wasm32-unknown-unknown")
+        .join("release")
+        .join("vm2_flipper.wasm");
+
+    let module_bytes = Bytes::from(std::fs::read(contract_file).expect("cannot read module bytes"));
+    let bytecode_hash = chain_utils::compute_wasm_bytecode_hash(&module_bytes);
+    let contract_address = chain_utils::compute_predictable_address(
+        "casper-example".as_bytes(),
+        ALICE_PUBLIC_KEY.to_account_hash().value(),
+        bytecode_hash,
+        None,
+    );
+    
+    let mut transaction = Transaction::from(
+        TransactionV1Builder::new_session(
+            false,
+            module_bytes,
+            TransactionRuntimeParams::VmCasperV2 {
+                transferred_value: 0,
+                seed: None,
+            },
+        )
+        .with_chain_name("casper-example")
+        .with_pricing_mode(PricingMode::PaymentLimited {
+            payment_amount: 100_000_000_000,
+            gas_price_tolerance: 1,
+            standard_payment: true,
+        })
+        .with_transaction_args(TransactionArgs::Bytesrepr(
+            Bytes::new()
+        ))
+        .with_secret_key(&ALICE_SECRET_KEY)
+        .build()
+        .unwrap(),
+    );
+    transaction.sign(&ALICE_SECRET_KEY);
+
+    test.fixture
+        .run_until_consensus_in_era(ERA_ONE, ONE_MIN)
+        .await;
+
+    test.send_transaction(transaction).await;
+
+    let block = test.fixture.highest_complete_block();
+    
+    // Read the contract value (false) using a vm query
+    let vm_query_request = ExecutorQueryRequest {
+        initiator: ALICE_PUBLIC_KEY.to_account_hash(),
+        contract_address,
+        entry_point: "get".into(),
+        input: Vec::new(),
+        gas_limit: 100,
+        block_time: block.timestamp().into(),
+        state_hash: *block.state_root_hash(),
+        parent_block_hash: *block.parent_hash(),
+        block_height: block.height(),
+        chain_name: "casper-example".into(),
+    };
+
+    let (_node_id, runner) = test.fixture.network.nodes_mut().iter_mut().next().unwrap();
+    runner.process_injected_effects(|effect_builder| {
+        effect_builder.query_contract(vm_query_request).event(|result| {
+            assert!(result.is_success());
+
+            panic!("CRINGE!!!!");
+
+            let bytes = result.output().expect("should have output");
+            let result: bool = borsh::from_slice(&bytes.to_vec()).expect("should deserialize");
+            assert_eq!(result, false);
+
+            MainEvent::ReactorCrank
+        })
+    }).await;
+    // assert!(result.is_success());
+
+    // let bytes = result.output().expect("should have output");
+    // let result: bool = borsh::from_slice(&bytes.to_vec()).expect("should deserialize");
+
+    // assert_eq!(result, false);
 }
