@@ -60,8 +60,8 @@ impl IterableMapHash for String {}
 pub struct IterableMap<K, V> {
     pub(crate) prefix: String,
 
-    // Keys are hashed to u128 internally, but K is preserved to enforce type safety.
-    // While this map could accept arbitrary u128 keys, requiring a concrete K prevents
+    // Keys are hashed to u64 internally, but K is preserved to enforce type safety.
+    // While this map could accept arbitrary u64 keys, requiring a concrete K prevents
     // misuse and clarifies intent at the type level.
     pub(crate) tail_key_hash: Option<IterableMapPtr>,
     _marker: PhantomData<(K, V)>,
@@ -146,9 +146,7 @@ where
 
     /// Returns a value corresponding to the key.
     pub fn get(&self, key: &K) -> Option<V> {
-        // If a slot is writable, it implicitly belongs the key
-        let (_, at_ptr) = self.get_writable_slot(key);
-        at_ptr.and_then(|entry| entry.value)
+        self.find_slot(key).and_then(|(_, e)| e.value)
     }
 
     /// Removes a key from the map. Returns the associated value if the key exists.
@@ -232,20 +230,20 @@ where
 
     /// Clears the map, removing all key-value pairs.
     pub fn clear(&mut self) {
-        for key in self.keys() {
-            let prefix = self.create_prefix_from_key(&key);
-            {
-                let key = Keyspace::Context(&prefix);
-                casper::remove(key).unwrap()
-            };
+        while let Some(ptr) = self.tail_key_hash {
+            let prefix = self.create_prefix_from_ptr(&ptr);
+            let entry = self
+                .get_entry(Keyspace::Context(&prefix))
+                .expect("map corrupted during clear");
+            let prev = entry.previous;
+            self.remove(&entry.key);
+            self.tail_key_hash = prev;
         }
-
-        self.tail_key_hash = None;
     }
 
     /// Returns true if the map contains a value for the specified key.
     pub fn contains_key(&self, key: &K) -> bool {
-        self.get(key).is_some()
+        self.find_slot(key).is_some()
     }
 
     /// Creates an iterator visiting all the values in arbitrary order.
@@ -353,11 +351,6 @@ where
             Ok(None) => None,
             Err(_) => None,
         }
-    }
-
-    fn create_prefix_from_key(&self, key: &K) -> Vec<u8> {
-        let ptr = self.create_root_ptr_from_key(key);
-        self.create_prefix_from_ptr(&ptr)
     }
 
     fn create_root_ptr_from_key(&self, key: &K) -> IterableMapPtr {
@@ -883,6 +876,20 @@ mod tests {
 
             assert_eq!(map.get(&k1), Some("reused".to_string()));
             assert_eq!(map.get(&k2), Some("second".to_string()));
+        })
+        .unwrap();
+    }
+
+    #[test]
+    fn get_works_past_tombstone() {
+        dispatch(|| {
+            let mut map = IterableMap::<CollidingKey, String>::new(TEST_MAP_PREFIX);
+            let k1 = CollidingKey(42, 1);
+            let k2 = CollidingKey(42, 2);
+            map.insert(k1.clone(), "a".to_string());
+            map.insert(k2.clone(), "b".to_string());
+            map.remove(&k1);
+            assert_eq!(map.get(&k2), Some("b".to_string()));
         })
         .unwrap();
     }
