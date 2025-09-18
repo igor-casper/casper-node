@@ -1693,7 +1693,6 @@ fn generate_field_access_methods(
     crate_path: &proc_macro2::TokenStream,
 ) -> (proc_macro2::TokenStream, proc_macro2::TokenStream, proc_macro2::TokenStream, proc_macro2::TokenStream) {
     let struct_name = &contract_struct.ident;
-    let mut methods = Vec::new();
     let mut internal_methods = Vec::new();
     let mut field_reads = Vec::new();
     let mut field_writes = Vec::new();
@@ -1713,9 +1712,12 @@ fn generate_field_access_methods(
                     internal_methods.push(quote! {
                         /// Internal method to get field from storage
                         fn #internal_get_method() -> Result<Option<#field_type>, #crate_path::casper_executor_wasm_common::error::HostResult> {
-                            let key = format!("{}_{}", stringify!(#struct_name), #field_name_str);
-                            let mut vec = Vec::new();
-                            let read_info = #crate_path::casper::read(#crate_path::casper_executor_wasm_common::keyspace::Keyspace::Context(key.as_bytes()), |size| #crate_path::reserve_vec_space(&mut vec, size))?;
+                            let mut key = #crate_path::prelude::Vec::new();
+                            key.extend_from_slice(stringify!(#struct_name).as_bytes());
+                            key.push(b'_');
+                            key.extend_from_slice(#field_name_str.as_bytes());
+                            let mut vec = #crate_path::prelude::Vec::new();
+                            let read_info = #crate_path::casper::read(#crate_path::casper_executor_wasm_common::keyspace::Keyspace::Context(&key), |size| #crate_path::reserve_vec_space(&mut vec, size))?;
                             match read_info {
                                 Some(()) => Ok(Some(#crate_path::serializers::borsh::from_slice(&vec).unwrap())),
                                 None => Ok(None),
@@ -1724,9 +1726,12 @@ fn generate_field_access_methods(
                         
                         /// Internal method to set field in storage
                         fn #internal_set_method(value: &#field_type) -> Result<(), #crate_path::casper_executor_wasm_common::error::HostResult> {
-                            let key = format!("{}_{}", stringify!(#struct_name), #field_name_str);
+                            let mut key = #crate_path::prelude::Vec::new();
+                            key.extend_from_slice(stringify!(#struct_name).as_bytes());
+                            key.push(b'_');
+                            key.extend_from_slice(#field_name_str.as_bytes());
                             let serialized_value = #crate_path::serializers::borsh::to_vec(value).unwrap();
-                            #crate_path::casper::write(#crate_path::casper_executor_wasm_common::keyspace::Keyspace::Context(key.as_bytes()), &serialized_value)?;
+                            #crate_path::casper::write(#crate_path::casper_executor_wasm_common::keyspace::Keyspace::Context(&key), &serialized_value)?;
                             Ok(())
                         }
                     });
@@ -1748,29 +1753,16 @@ fn generate_field_access_methods(
                         Self::#internal_set_method(&self.#field_name)?;
                     });
                     
-                    // Generate getter method
-                    let getter_method = format_ident!("get_{}", field_name);
-                    methods.push(quote! {
-                        pub fn #getter_method() -> Result<Option<#field_type>, #crate_path::casper_executor_wasm_common::error::HostResult> {
-                            Self::#internal_get_method()
-                        }
-                    });
-
-                    // Generate setter method
-                    let setter_method = format_ident!("set_{}", field_name);
-                    methods.push(quote! {
-                        pub fn #setter_method(value: &#field_type) -> Result<(), #crate_path::casper_executor_wasm_common::error::HostResult> {
-                            Self::#internal_set_method(value)
-                        }
-                    });
-
-                    // Generate has method
-                    let has_method = format_ident!("has_{}", field_name);
-                    methods.push(quote! {
-                        pub fn #has_method() -> Result<bool, #crate_path::casper_executor_wasm_common::error::HostResult> {
-                            let key = format!("{}_{}", stringify!(#struct_name), #field_name_str);
-                            let mut vec = Vec::new();
-                            let read_info = #crate_path::casper::read(#crate_path::casper_executor_wasm_common::keyspace::Keyspace::Context(key.as_bytes()), |size| #crate_path::reserve_vec_space(&mut vec, size))?;
+                    // Generate internal has method
+                    let has_method = format_ident!("__has_{}", field_name);
+                    internal_methods.push(quote! {
+                        fn #has_method() -> Result<bool, #crate_path::casper_executor_wasm_common::error::HostResult> {
+                            let mut key = #crate_path::prelude::Vec::new();
+                            key.extend_from_slice(stringify!(#struct_name).as_bytes());
+                            key.push(b'_');
+                            key.extend_from_slice(#field_name_str.as_bytes());
+                            let mut vec = #crate_path::prelude::Vec::new();
+                            let read_info = #crate_path::casper::read(#crate_path::casper_executor_wasm_common::keyspace::Keyspace::Context(&key), |size| #crate_path::reserve_vec_space(&mut vec, size))?;
                             match read_info {
                                 Some(()) => Ok(true),
                                 None => Ok(false),
@@ -1778,12 +1770,15 @@ fn generate_field_access_methods(
                         }
                     });
 
-                    // Generate remove method
-                    let remove_method = format_ident!("remove_{}", field_name);
-                    methods.push(quote! {
-                        pub fn #remove_method() -> Result<(), #crate_path::casper_executor_wasm_common::error::HostResult> {
-                            let key = format!("{}_{}", stringify!(#struct_name), #field_name_str);
-                            #crate_path::casper::remove(#crate_path::casper_executor_wasm_common::keyspace::Keyspace::Context(key.as_bytes()))?;
+                    // Generate internal remove method
+                    let remove_method = format_ident!("__remove_{}", field_name);
+                    internal_methods.push(quote! {
+                        fn #remove_method() -> Result<(), #crate_path::casper_executor_wasm_common::error::HostResult> {
+                            let mut key = #crate_path::prelude::Vec::new();
+                            key.extend_from_slice(stringify!(#struct_name).as_bytes());
+                            key.push(b'_');
+                            key.extend_from_slice(#field_name_str.as_bytes());
+                            #crate_path::casper::remove(#crate_path::casper_executor_wasm_common::keyspace::Keyspace::Context(&key))?;
                             Ok(())
                         }
                     });
@@ -1810,9 +1805,7 @@ fn generate_field_access_methods(
         Ok(())
     };
 
-    let methods_impl = quote! {
-        #(#methods)*
-    };
+    let methods_impl = quote! {};
 
     let internal_methods_impl = quote! {
         #(#internal_methods)*

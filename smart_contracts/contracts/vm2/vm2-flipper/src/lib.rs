@@ -30,6 +30,10 @@ impl Flipper {
     pub fn get(&self) -> bool {
         self.value
     }
+
+    pub fn get_value_fast() -> bool {
+        Self::__get_value().unwrap_or(None).unwrap_or(false)
+    }
 }
 
 #[cfg(test)]
