@@ -388,6 +388,49 @@ pub fn write_state<T: BorshSerialize>(state: &T) -> Result<(), HostResult> {
     Ok(())
 }
 
+/// Write a contract state field to the global state.
+pub fn write_state_field<T: BorshSerialize>(
+    contract_name: &str,
+    field_name: &str,
+    value: &T,
+) -> Result<(), HostResult> {
+    let key = format!("{}_{}", contract_name, field_name);
+    let serialized_value = borsh::to_vec(value).unwrap();
+    write(Keyspace::Context(key.as_bytes()), &serialized_value)?;
+    Ok(())
+}
+
+/// Read a contract state field from the global state.
+pub fn read_state_field<T: Default + BorshDeserialize>(
+    contract_name: &str,
+    field_name: &str,
+) -> Result<T, HostResult> {
+    let key = format!("{}_{}", contract_name, field_name);
+    let mut vec = Vec::new();
+    let read_info = read(Keyspace::Context(key.as_bytes()), |size| reserve_vec_space(&mut vec, size))?;
+    match read_info {
+        Some(()) => Ok(borsh::from_slice(&vec).unwrap()),
+        None => Ok(T::default()),
+    }
+}
+
+/// Check if a contract state field exists in the global state.
+pub fn has_state_field(contract_name: &str, field_name: &str) -> Result<bool, HostResult> {
+    let key = format!("{}_{}", contract_name, field_name);
+    let mut vec = Vec::new();
+    let read_info = read(Keyspace::Context(key.as_bytes()), |size| reserve_vec_space(&mut vec, size))?;
+    match read_info {
+        Some(()) => Ok(true),
+        None => Ok(false),
+    }
+}
+
+/// Remove a contract state field from the global state.
+pub fn remove_state_field(contract_name: &str, field_name: &str) -> Result<(), HostResult> {
+    let key = format!("{}_{}", contract_name, field_name);
+    remove(Keyspace::Context(key.as_bytes()))
+}
+
 #[derive(Debug)]
 pub struct CallResult<T: ToCallData> {
     pub data: Option<Vec<u8>>,

@@ -7356,6 +7356,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "vm2-field-based-test"
+version = "0.1.0"
+dependencies = [
+ "casper-contract-macros",
+ "casper-contract-sdk",
+ "casper-contract-sdk-sys",
+ "casper-executor-wasm-common",
+]
+
+[[package]]
 name = "vm2-flipper"
 version = "0.1.0"
 dependencies = [

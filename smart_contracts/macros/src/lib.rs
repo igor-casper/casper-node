@@ -402,7 +402,7 @@ fn generate_impl_for_contract(mut entry_points: ItemImpl) -> TokenStream {
                         if !never_returns && receiver.reference.is_some() {
                             // &mut self does write updated state
                             Some(quote! {
-                                casper_contract_sdk::casper::write_state(&instance).unwrap();
+                                instance.__write_state_to_fields().unwrap();
                             })
                         } else {
                             // mut self does not write updated state as the
@@ -423,7 +423,7 @@ fn generate_impl_for_contract(mut entry_points: ItemImpl) -> TokenStream {
                     Some(_) | None => {
                         if !never_returns && method_attribute.constructor {
                             Some(quote! {
-                                casper_contract_sdk::casper::write_state(&_ret).unwrap();
+                                _ret.__write_state_to_fields().unwrap();
                             })
                         } else {
                             None
@@ -584,7 +584,7 @@ fn generate_impl_for_contract(mut entry_points: ItemImpl) -> TokenStream {
 
                 let handle_call = if entry_point_requires_state {
                     quote! {
-                        let mut instance: #struct_name = casper_contract_sdk::casper::read_state().unwrap();
+                        let mut instance: #struct_name = #struct_name::__read_state_from_fields().unwrap();
                         let _ret = instance.#func_name(#(args.#arg_names,)*);
                     }
                 } else if method_attribute.constructor {
@@ -1601,6 +1601,10 @@ fn process_casper_contract_state_for_struct(
 
     let maybe_derive_abi = get_maybe_derive_abi(crate_path.clone());
 
+    // Generate field access methods for each field in the struct
+    let (field_access_methods, internal_field_methods, read_state_from_fields_impl, write_state_to_fields_impl) = 
+        generate_field_access_methods(contract_struct, &crate_path);
+
     // Optionally, generate a schema export if the appropriate flag
     // is set.
     let maybe_casper_schema = {
@@ -1653,6 +1657,26 @@ fn process_casper_contract_state_for_struct(
             }
         }
 
+        // Generate internal field access methods
+        impl #struct_name {
+            #internal_field_methods
+            
+            /// Read state using field-based storage
+            pub fn __read_state_from_fields() -> Result<Self, #crate_path::casper_executor_wasm_common::error::HostResult> {
+                #read_state_from_fields_impl
+            }
+            
+            /// Write state using field-based storage
+            pub fn __write_state_to_fields(&self) -> Result<(), #crate_path::casper_executor_wasm_common::error::HostResult> {
+                #write_state_to_fields_impl
+            }
+        }
+
+        // Generate field access methods
+        impl #struct_name {
+            #field_access_methods
+        }
+
         #maybe_casper_schema
 
         impl #crate_path::compat::types::CLTyped for #struct_name {
@@ -1663,6 +1687,140 @@ fn process_casper_contract_state_for_struct(
     }
     .into()
 }
+
+fn generate_field_access_methods(
+    contract_struct: &ItemStruct,
+    crate_path: &proc_macro2::TokenStream,
+) -> (proc_macro2::TokenStream, proc_macro2::TokenStream, proc_macro2::TokenStream, proc_macro2::TokenStream) {
+    let struct_name = &contract_struct.ident;
+    let mut methods = Vec::new();
+    let mut internal_methods = Vec::new();
+    let mut field_reads = Vec::new();
+    let mut field_writes = Vec::new();
+    let mut field_assignments = Vec::new();
+
+    match &contract_struct.fields {
+        syn::Fields::Named(fields) => {
+            for field in &fields.named {
+                if let Some(field_name) = &field.ident {
+                    let field_type = &field.ty;
+                    let field_name_str = field_name.to_string();
+                    
+                    // Generate internal field access methods
+                    let internal_get_method = format_ident!("__get_{}", field_name);
+                    let internal_set_method = format_ident!("__set_{}", field_name);
+                    
+                    internal_methods.push(quote! {
+                        /// Internal method to get field from storage
+                        fn #internal_get_method() -> Result<Option<#field_type>, #crate_path::casper_executor_wasm_common::error::HostResult> {
+                            let key = format!("{}_{}", stringify!(#struct_name), #field_name_str);
+                            let mut vec = Vec::new();
+                            let read_info = #crate_path::casper::read(#crate_path::casper_executor_wasm_common::keyspace::Keyspace::Context(key.as_bytes()), |size| #crate_path::reserve_vec_space(&mut vec, size))?;
+                            match read_info {
+                                Some(()) => Ok(Some(#crate_path::serializers::borsh::from_slice(&vec).unwrap())),
+                                None => Ok(None),
+                            }
+                        }
+                        
+                        /// Internal method to set field in storage
+                        fn #internal_set_method(value: &#field_type) -> Result<(), #crate_path::casper_executor_wasm_common::error::HostResult> {
+                            let key = format!("{}_{}", stringify!(#struct_name), #field_name_str);
+                            let serialized_value = #crate_path::serializers::borsh::to_vec(value).unwrap();
+                            #crate_path::casper::write(#crate_path::casper_executor_wasm_common::keyspace::Keyspace::Context(key.as_bytes()), &serialized_value)?;
+                            Ok(())
+                        }
+                    });
+                    
+                    // Generate field read for state reconstruction
+                    field_reads.push(quote! {
+                        let #field_name = Self::#internal_get_method()?.unwrap_or_else(|| {
+                            panic!("Field {} not found in storage", #field_name_str);
+                        });
+                    });
+                    
+                    // Generate field assignment for struct construction
+                    field_assignments.push(quote! {
+                        #field_name,
+                    });
+                    
+                    // Generate field write for state persistence
+                    field_writes.push(quote! {
+                        Self::#internal_set_method(&self.#field_name)?;
+                    });
+                    
+                    // Generate getter method
+                    let getter_method = format_ident!("get_{}", field_name);
+                    methods.push(quote! {
+                        pub fn #getter_method() -> Result<Option<#field_type>, #crate_path::casper_executor_wasm_common::error::HostResult> {
+                            Self::#internal_get_method()
+                        }
+                    });
+
+                    // Generate setter method
+                    let setter_method = format_ident!("set_{}", field_name);
+                    methods.push(quote! {
+                        pub fn #setter_method(value: &#field_type) -> Result<(), #crate_path::casper_executor_wasm_common::error::HostResult> {
+                            Self::#internal_set_method(value)
+                        }
+                    });
+
+                    // Generate has method
+                    let has_method = format_ident!("has_{}", field_name);
+                    methods.push(quote! {
+                        pub fn #has_method() -> Result<bool, #crate_path::casper_executor_wasm_common::error::HostResult> {
+                            let key = format!("{}_{}", stringify!(#struct_name), #field_name_str);
+                            let mut vec = Vec::new();
+                            let read_info = #crate_path::casper::read(#crate_path::casper_executor_wasm_common::keyspace::Keyspace::Context(key.as_bytes()), |size| #crate_path::reserve_vec_space(&mut vec, size))?;
+                            match read_info {
+                                Some(()) => Ok(true),
+                                None => Ok(false),
+                            }
+                        }
+                    });
+
+                    // Generate remove method
+                    let remove_method = format_ident!("remove_{}", field_name);
+                    methods.push(quote! {
+                        pub fn #remove_method() -> Result<(), #crate_path::casper_executor_wasm_common::error::HostResult> {
+                            let key = format!("{}_{}", stringify!(#struct_name), #field_name_str);
+                            #crate_path::casper::remove(#crate_path::casper_executor_wasm_common::keyspace::Keyspace::Context(key.as_bytes()))?;
+                            Ok(())
+                        }
+                    });
+                }
+            }
+        }
+        syn::Fields::Unnamed(_) => {
+            // TODO: Think about unnamed fields
+        }
+        syn::Fields::Unit => {
+            // Unit structs have no fields
+        }
+    }
+
+    let read_state_from_fields_impl = quote! {
+        #(#field_reads)*
+        Ok(Self {
+            #(#field_assignments)*
+        })
+    };
+
+    let write_state_to_fields_impl = quote! {
+        #(#field_writes)*
+        Ok(())
+    };
+
+    let methods_impl = quote! {
+        #(#methods)*
+    };
+
+    let internal_methods_impl = quote! {
+        #(#internal_methods)*
+    };
+
+    (methods_impl, internal_methods_impl, read_state_from_fields_impl, write_state_to_fields_impl)
+}
+
 
 fn process_casper_stable_key_constant(constant: &ItemConst) -> TokenStream {
     let _const_ident = &constant.ident;
