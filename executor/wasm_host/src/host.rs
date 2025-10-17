@@ -15,7 +15,7 @@ use casper_executor_wasm_common::{
         HOST_ERROR_SUCCESS, HOST_ERROR_TOO_MANY_TOPICS, HOST_ERROR_TOPIC_TOO_LONG,
     },
     flags::ReturnFlags,
-    keyspace::{Keyspace, KeyspaceTag},
+    keyspace::{CollectionAddrInner, ContextAddr, Keyspace, KeyspaceTag, StateAddrInner},
 };
 use casper_executor_wasm_interface::{
     executor::{
@@ -146,6 +146,10 @@ pub fn casper_write<S: GlobalStateReader>(
     key_size: u32,
     value_ptr: u32,
     value_size: u32,
+    collection_type_tag: u32,
+    collection_prefix_ptr: u32,
+    collection_prefix_len: u32,
+    tail_ptr: u32,
 ) -> VMResult<u32> {
     // In restricted mode, writing is not allowed
     if caller.context().sandboxed {
@@ -176,9 +180,39 @@ pub fn casper_write<S: GlobalStateReader>(
     let key_payload_bytes =
         caller.memory_read(key_ptr.wrapped_try_into()?, key_size.wrapped_try_into()?)?;
 
+    let entity_addr = context_to_entity_addr(caller.context()).value();
+
+    let context_addr = if collection_type_tag == 0 {
+        let string_name = {
+            let string_name_bytes = caller.memory_read(
+                collection_prefix_ptr.wrapped_try_into()?,
+                collection_prefix_len.wrapped_try_into()?
+            )?;
+            String::from_utf8_lossy(string_name_bytes.as_ref()).to_string()
+        };
+
+        StateAddrInner::new(entity_addr, string_name).into()
+    } else {
+        let collection_prefix = caller.memory_read(
+            collection_prefix_ptr.wrapped_try_into()?,
+            8   // TODO: Extract as const
+        )?.wrapped_try_into()?;
+
+        let tail = caller.memory_read(
+            tail_ptr.wrapped_try_into()?,
+            32  // TODO: Extract as const
+        )?.wrapped_try_into()?;
+
+        CollectionAddrInner::new(
+            entity_addr,
+            collection_type_tag.wrapped_try_into()?,
+            collection_prefix,
+            tail,
+        ).into()
+    };
+
     let keyspace = match keyspace_tag {
-        KeyspaceTag::State => Keyspace::State,
-        KeyspaceTag::Context => Keyspace::Context(&key_payload_bytes),
+        KeyspaceTag::Context => Keyspace::Context(context_addr),
         KeyspaceTag::NamedKey => {
             let key_name = match std::str::from_utf8(&key_payload_bytes) {
                 Ok(key_name) => key_name,
@@ -189,10 +223,9 @@ pub fn casper_write<S: GlobalStateReader>(
 
             Keyspace::NamedKey(key_name)
         }
-        KeyspaceTag::AllNamedKeys => Keyspace::AllNamedKeys,
     };
 
-    let global_state_key = match keyspace_to_global_state_key(caller.context(), keyspace) {
+    let global_state_key = match keyspace_to_global_state_key(caller.context(), keyspace.clone()) {
         Some(global_state_key) => global_state_key,
         None => {
             // Unknown keyspace received, return error
@@ -206,7 +239,7 @@ pub fn casper_write<S: GlobalStateReader>(
     )?;
 
     let stored_value = match keyspace {
-        Keyspace::State | Keyspace::Context(_) => {
+        Keyspace::Context(_) => {
             let cl_value_any = CLValue::from_components(CLType::Any, value);
             StoredValue::CLValue(cl_value_any)
         }
@@ -295,7 +328,6 @@ pub fn casper_write<S: GlobalStateReader>(
 
             stored_value
         }
-        Keyspace::AllNamedKeys => return Ok(HOST_ERROR_INVALID_INPUT),
     };
 
     metered_write(&mut caller, global_state_key, stored_value)?;
@@ -341,7 +373,6 @@ pub fn casper_remove<S: GlobalStateReader>(
         caller.memory_read(key_ptr.wrapped_try_into()?, key_size.wrapped_try_into()?)?;
 
     let keyspace = match keyspace_tag {
-        KeyspaceTag::State => Keyspace::State,
         KeyspaceTag::Context => Keyspace::Context(&key_payload_bytes),
         KeyspaceTag::NamedKey => {
             let key_name = match std::str::from_utf8(&key_payload_bytes) {
@@ -353,7 +384,6 @@ pub fn casper_remove<S: GlobalStateReader>(
 
             Keyspace::NamedKey(key_name)
         }
-        KeyspaceTag::AllNamedKeys => Keyspace::AllNamedKeys,
     };
 
     let global_state_key = match keyspace_to_global_state_key(caller.context(), keyspace) {
@@ -456,7 +486,6 @@ pub fn casper_read<S: GlobalStateReader>(
         caller.memory_read(key_ptr.wrapped_try_into()?, key_size.wrapped_try_into()?)?;
 
     let keyspace = match keyspace_tag {
-        KeyspaceTag::State => Keyspace::State,
         KeyspaceTag::Context => Keyspace::Context(&key_payload_bytes),
         KeyspaceTag::NamedKey => {
             let key_name = match std::str::from_utf8(&key_payload_bytes) {
@@ -468,7 +497,6 @@ pub fn casper_read<S: GlobalStateReader>(
 
             Keyspace::NamedKey(key_name)
         }
-        KeyspaceTag::AllNamedKeys => Keyspace::AllNamedKeys,
     };
 
     let global_state_key = match keyspace_to_global_state_key(caller.context(), keyspace) {
@@ -535,32 +563,13 @@ pub fn casper_read<S: GlobalStateReader>(
                     }
                 }
             }
-            Keyspace::AllNamedKeys => match contract.take_named_keys().to_bytes() {
-                Ok(bytes) => Cow::Owned(bytes),
-                Err(_) => return Ok(HOST_ERROR_INVALID_INPUT),
-            },
             _ => {
                 error!(?keyspace, "unsupported keyspace");
                 return Ok(HOST_ERROR_INVALID_INPUT);
             }
         },
         Ok(Some(StoredValue::AddressableEntity(_))) => {
-            if let Keyspace::AllNamedKeys = keyspace {
-                let entity_addr = context_to_entity_addr(caller.context());
-
-                let named_keys = caller
-                    .context_mut()
-                    .tracking_copy
-                    .get_named_keys(entity_addr)
-                    .map(|named_keys| named_keys.to_bytes());
-
-                match named_keys {
-                    Ok(Ok(bytes)) => Cow::Owned(bytes),
-                    Ok(_) | Err(_) => return Ok(HOST_ERROR_INVALID_INPUT),
-                }
-            } else {
-                return Ok(HOST_ERROR_INVALID_INPUT);
-            }
+            return Ok(HOST_ERROR_INVALID_INPUT);
         }
         Ok(Some(StoredValue::EntryPoint(EntryPointValue::V1CasperVm(entry_point)))) => {
             match entry_point.entry_point_payment() {
@@ -619,13 +628,15 @@ fn keyspace_to_global_state_key<S: GlobalStateReader>(
     context: &Context<S>,
     keyspace: Keyspace<'_>,
 ) -> Option<Key> {
-    let entity_addr = context_to_entity_addr(context);
     let ae_enabled = context.tracking_copy.addressable_entity_enabled();
 
     match keyspace {
-        Keyspace::State => Some(Key::State(entity_addr)),
-        Keyspace::Context(bytes) => {
-            let digest = Digest::hash(bytes);
+        Keyspace::Context(context_addr) => {
+            let entity_addr = match context_addr {
+                ContextAddr::StateAddr(state_addr_inner) => state_addr_inner.entity_addr,
+                ContextAddr::CollectionAddr(collection_addr_inner) => collection_addr_inner.entity_addr,
+            };
+            let digest = Digest::hash(context_addr);
             Some(Key::NamedKey(NamedKeyAddr::new_named_key_entry(
                 entity_addr,
                 digest.value(),
@@ -637,19 +648,6 @@ fn keyspace_to_global_state_key<S: GlobalStateReader>(
                 entity_addr,
                 digest.value(),
             )))
-        }
-        Keyspace::AllNamedKeys => {
-            if ae_enabled {
-                Some(Key::AddressableEntity(entity_addr))
-            } else {
-                match entity_addr {
-                    EntityAddr::Account(hash_addr) => {
-                        Some(Key::Account(AccountHash::new(hash_addr)))
-                    }
-                    EntityAddr::SmartContract(hash_addr) => Some(Key::Hash(hash_addr)),
-                    _ => None,
-                }
-            }
         }
     }
 }
